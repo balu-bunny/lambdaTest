@@ -1,0 +1,74 @@
+{
+    "Comment": "Salesforce Backup State Machine",
+    "StartAt": "GetObjectList",
+    "States": {
+        "GetObjectList": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:GetSalesforceObjectList",
+            "ResultPath": "$.objectList",
+            "Next": "BackupMap"
+        },
+        "BackupMap": {
+            "Type": "Map",
+            "ItemsPath": "$.objectList",
+            "Parameters": {
+                "objectName.$": "$$.Map.Item.Value"
+            },
+            "Iterator": {
+                "StartAt": "InitBulkBackup",
+                "States": {
+                    "InitBulkBackup": {
+                        "Type": "Task",
+                        "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:InitBulkBackup",
+                        "ResultPath": "$.backupJob",
+                        "Next": "WaitBeforePolling"
+                    },
+                    "WaitBeforePolling": {
+                        "Type": "Wait",
+                        "Seconds": 300,
+                        "Next": "CheckBackupStatus"
+                    },
+                    "CheckBackupStatus": {
+                        "Type": "Task",
+                        "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:CheckBackupStatus",
+                        "ResultPath": "$.status",
+                        "Next": "IsBackupComplete"
+                    },
+                    "IsBackupComplete": {
+                        "Type": "Choice",
+                        "Choices": [
+                            {
+                                "Variable": "$.status.state",
+                                "StringEquals": "Completed",
+                                "Next": "DownloadData"
+                            },
+                            {
+                                "Variable": "$.status.state",
+                                "StringEquals": "Failed",
+                                "Next": "MarkFailed"
+                            }
+                        ],
+                        "Default": "WaitBeforePolling"
+                    },
+                    "DownloadData": {
+                        "Type": "Task",
+                        "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:DownloadDataToS3",
+                        "ResultPath": "$.downloadResult",
+                        "Next": "MarkCompleted"
+                    },
+                    "MarkCompleted": {
+                        "Type": "Task",
+                        "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:UpdateDBStatusCompleted",
+                        "End": true
+                    },
+                    "MarkFailed": {
+                        "Type": "Task",
+                        "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:UpdateDBStatusFailed",
+                        "End": true
+                    }
+                }
+            },
+            "End": true
+        }
+    }
+}
