@@ -5,15 +5,32 @@ Description: >
 
   Sample SAM Template for lambda-pythonSetpFunction
 
-Globals:
-  Function:
-    Runtime: python3.13
-    Architectures:
-      - x86_64
-    Policies:
-      - CloudWatchLogsPolicy: {}
-
 Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+  CloudWatchLogsPolicy:
+      Type: AWS::IAM::Policy
+      Properties:
+        PolicyName: LambdaCloudWatchLogs
+        Roles:
+          - !Ref LambdaExecutionRole
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: "arn:aws:logs:*:*:*"
   SFBackupStateMachine:
     Type: AWS::Serverless::StateMachine # More info about State Machine Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-statemachine.html
     Properties:
@@ -55,6 +72,8 @@ Resources:
       Runtime: python3.13
       Architectures:
         - x86_64
+      Policies:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
   DownloadDataToS3:
     Type: AWS::Serverless::Function
@@ -64,6 +83,8 @@ Resources:
       Runtime: python3.13
       Architectures:
         - x86_64
+      Policies:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
   GetSalesforceObjectList:
     Type: AWS::Serverless::Function
@@ -73,6 +94,8 @@ Resources:
       Runtime: python3.13
       Architectures:
         - x86_64
+      Policies:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Events:
         HelloWorld:
           Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
@@ -92,6 +115,8 @@ Resources:
       Runtime: python3.13
       Architectures:
         - x86_64
+      Policies:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
   InitBulkBackup:
     Type: AWS::Serverless::Function
     Properties:
@@ -100,6 +125,8 @@ Resources:
       Runtime: python3.13
       Architectures:
         - x86_64
+      Policies:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
   TransactionTable:
     Type: AWS::Serverless::SimpleTable # More info about SimpleTable Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-simpletable.html

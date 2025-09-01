@@ -4,7 +4,7 @@
     "States": {
         "GetObjectList": {
             "Type": "Task",
-            "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:GetSalesforceObjectList",
+            "Resource": "${GetSalesforceObjectListArn}",
             "ResultPath": "$.objectList",
             "Next": "BackupMap"
         },
@@ -19,7 +19,7 @@
                 "States": {
                     "InitBulkBackup": {
                         "Type": "Task",
-                        "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:InitBulkBackup",
+                        "Resource": "${InitBulkBackupArn}",
                         "ResultPath": "$.backupJob",
                         "Next": "WaitBeforePolling"
                     },
@@ -30,7 +30,7 @@
                     },
                     "CheckBackupStatus": {
                         "Type": "Task",
-                        "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:CheckBackupStatus",
+                        "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:CheckBackupStatus",
                         "ResultPath": "$.status",
                         "Next": "IsBackupComplete"
                     },
@@ -52,18 +52,18 @@
                     },
                     "DownloadData": {
                         "Type": "Task",
-                        "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:DownloadDataToS3",
+                        "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:DownloadDataToS3",
                         "ResultPath": "$.downloadResult",
                         "Next": "MarkCompleted"
                     },
                     "MarkCompleted": {
                         "Type": "Task",
-                        "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:UpdateDBStatusCompleted",
+                        "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:UpdateDBStatusCompleted",
                         "End": true
                     },
                     "MarkFailed": {
                         "Type": "Task",
-                        "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:UpdateDBStatusFailed",
+                        "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:UpdateDBStatusFailed",
                         "End": true
                     }
                 }
