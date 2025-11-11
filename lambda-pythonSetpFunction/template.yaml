@@ -5,7 +5,54 @@ Description: >
 
   Sample SAM Template for lambda-pythonSetpFunction
 
+Globals:
+  Function:
+    Environment:
+      Variables:
+        SALESFORCE_URL: https://login.my.salesforce.com
+        SALESFORCE_ACCESS_TOKEN: xyz123
+    KmsKeyArn: !Ref "AWS::NoValue"
+Parameters:
+  BucketEncryptionType:
+    Type: String
+    Description: Choose encryption for the S3 bucket
+    Default: AES256
+    AllowedValues:
+      - AES256
+      - aws:kms
+      - none
+
+  S3DeletionPolicy:
+    Type: String
+    Default: Delete
+    AllowedValues: [Retain, Delete]
+    Description: DeletionPolicy for S3 bucket
+Conditions:
+  UseEncryption: !Not [!Equals [!Ref BucketEncryptionType, none]]
+  UseKmsEncryption: !Equals [!Ref BucketEncryptionType, aws:kms]
+  DeleteS3: !Equals [!Ref S3DeletionPolicy, Delete]
+
 Resources:
+  QPMSS3Bucket:
+    Type: AWS::S3::Bucket
+    Metadata:
+      AWS::CloudFormation::DeletionPolicy: !If [DeleteS3, Delete, Retain]
+    Properties:
+      BucketName: !Sub "qpms-backup"
+      Tags:
+        - Key: Name
+          Value: QPMSAppBucket
+      BucketEncryption: !If
+        - UseEncryption
+        - ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: !If
+                  - UseKmsEncryption
+                  - aws:kms
+                  - AES256
+        - !Ref AWS::NoValue
+  
+  
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -40,14 +87,17 @@ Resources:
         DownloadDataToS3Arn: !GetAtt DownloadDataToS3.Arn
         GetSalesforceObjectListArn: !GetAtt GetSalesforceObjectList.Arn
         InitBulkBackupArn: !GetAtt InitBulkBackup.Arn
+        downloadFileArn: !GetAtt downloadFile.Arn
         UpdateDBStatusCompletedArn: !GetAtt UpdateDBStatusCompleted.Arn
+        UpdateDBStatusFailedArn: !GetAtt UpdateDBStatusFailed.Arn
+        extractContentVersionListArn: !GetAtt extractContentVersionList.Arn
         DDBPutItem: !Sub arn:${AWS::Partition}:states:::dynamodb:putItem
         DDBTable: !Ref TransactionTable
       Events:
         HourlyTradingSchedule:
           Type: Schedule # More info about Schedule Event Source: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-property-statemachine-schedule.html
           Properties:
-            Description: Schedule to run the stock trading state machine every hour
+            Description: Schedule to run the backup state machine every hour
             Enabled: False # This schedule is disabled by default to avoid incurring charges.
             Schedule: "rate(1 hour)"
       Policies: # Find out more about SAM policy templates: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-policy-templates.html
@@ -61,76 +111,182 @@ Resources:
             FunctionName: !Ref UpdateDBStatusCompleted
         - LambdaInvokePolicy:
             FunctionName: !Ref InitBulkBackup
+        - LambdaInvokePolicy:
+            FunctionName: !Ref downloadFile 
+        - LambdaInvokePolicy:
+            FunctionName: !Ref UpdateDBStatusFailed
+        - LambdaInvokePolicy:
+            FunctionName: !Ref extractContentVersionList
         - DynamoDBWritePolicy:
             TableName: !Ref TransactionTable
-
+  CommonLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: common
+      ContentUri: layers/common
+      CompatibleRuntimes:
+        - python3.13
+      RetentionPolicy: Delete
+    Metadata:
+      BuildMethod: python3.13
+      BuildArchitecture: x86_64
   CheckBackupStatus:
     Type: AWS::Serverless::Function # More info about Function Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html
     Properties:
-      CodeUri: functions/CheckBackupStatus/
-      Handler: app.lambda_handler
-      Runtime: python3.13
+      PackageType: Image
       Architectures:
         - x86_64
       Policies:
       - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-
+      
+    Metadata:
+      Dockerfile: functions/CheckBackupStatus/Dockerfile
+      DockerContext: .
+      DockerTag: python3.13-v1
   DownloadDataToS3:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: functions/DownloadDataToS3/
-      Handler: app.lambda_handler
-      Runtime: python3.13
+      PackageType: Image
       Architectures:
         - x86_64
+      Timeout: 300
+      MemorySize: 1024
       Policies:
       - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      - Statement:
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:PutObjectAcl
+            Resource: arn:aws:s3:::qpms-backup/*
+      
+    Metadata:
+      Dockerfile: functions/DownloadDataToS3/Dockerfile
+      DockerContext: .
+      DockerTag: python3.13-v1
+
+  extractContentVersionList:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      Architectures:
+        - x86_64
+      Timeout: 60
+      Policies:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      - Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: arn:aws:s3:::qpms-backup/*
+
+    Metadata:
+      Dockerfile: functions/extractContentVersionList/Dockerfile
+      DockerContext: .
+      DockerTag: python3.13-v1
 
   GetSalesforceObjectList:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: functions/GetSalesforceObjectList/
-      Handler: app.lambda_handler
-      Runtime: python3.13
+      PackageType: Image
       Architectures:
         - x86_64
+      Timeout: 60
       Policies:
       - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Events:
-        HelloWorld:
-          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
-          Properties:
-            Path: /initBackup
-            Method: POST
-        health:
-          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
-          Properties:
-            Path: /health
-            Method: GET
+      
+    Metadata:
+      Dockerfile: functions/GetSalesforceObjectList/Dockerfile
+      DockerContext: .
+      DockerTag: python3.13-v1
+    # Events:
+    #   HelloWorld:
+    #     Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+    #     Properties:
+    #       Path: /initBackup
+    #       Method: POST
+    #   health:
+    #     Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+    #     Properties:
+    #       Path: /health
+    #       Method: GET
+  
+  downloadFile:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      Architectures:
+        - x86_64
+      Timeout: 600 # 10 minutes
+      MemorySize: 2048
+      Policies:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      - Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:PutObjectAcl
+                - s3:GetObject
+              Resource: arn:aws:s3:::qpms-backup/*
+    Metadata:
+      Dockerfile: functions/downloadFile/Dockerfile
+      DockerContext: .
+      DockerTag: python3.13-v1
   UpdateDBStatusCompleted:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: functions/UpdateDBStatusCompleted/
-      Handler: app.lambda_handler
-      Runtime: python3.13
+      PackageType: Image
       Architectures:
         - x86_64
       Policies:
       - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/qpms-backup
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: functions/UpdateDBStatusCompleted
+      DockerTag: python3.13-v1
+  UpdateDBStatusFailed:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      Architectures:
+        - x86_64
+      Policies:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/qpms-backup
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: functions/UpdateDBStatusFailed
+      DockerTag: python3.13-v1
   InitBulkBackup:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: functions/InitBulkBackup/
-      Handler: app.lambda_handler
-      Runtime: python3.13
+      PackageType: Image
       Architectures:
         - x86_64
+      Timeout: 60
       Policies:
       - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      
+    Metadata:
+      Dockerfile: functions/InitBulkBackup/Dockerfile
+      DockerContext: .
+      DockerTag: python3.13-v1
 
   TransactionTable:
     Type: AWS::Serverless::SimpleTable # More info about SimpleTable Resource: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-simpletable.html
     Properties:
+      TableName: !Sub 'qpms-backup'
       PrimaryKey:
         Name: Id
         Type: String
@@ -143,8 +299,8 @@ Outputs:
   # Find out more about other implicit resources you can reference within SAM
   # https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-specification-generated-resources.html
   SFBackupStateMachineArn:
-    Description: "Stock Trading State machine ARN"
+    Description: "Backup Trading State machine ARN"
     Value: !Ref SFBackupStateMachine
   SFBackupStateMachineRoleArn:
-    Description: "IAM Role created for Stock Trading State machine based on the specified SAM Policy Templates"
+    Description: "IAM Role created for Backup Trading State machine based on the specified SAM Policy Templates"
     Value: !GetAtt SFBackupStateMachineRole.Arn

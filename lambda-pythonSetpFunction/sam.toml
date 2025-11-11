@@ -1,0 +1,12 @@
+version = 0.1
+
+[UAT.deploy.parameters]
+stack_name = "lambda-pythonSetpFunction"
+resolve_s3 = true
+s3_prefix = "lambda-pythonSetpFunction"
+region = "us-east-1"
+profile = "UAT"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "BucketEncryptionType=\"AES256\" S3DeletionPolicy=\"Delete\""
+image_repositories = ["CheckBackupStatus=767900165297.dkr.ecr.us-east-1.amazonaws.com/lambdapythonsetpfunction4185fa71/checkbackupstatus63dca167repo", "DownloadDataToS3=767900165297.dkr.ecr.us-east-1.amazonaws.com/lambdapythonsetpfunction4185fa71/downloaddatatos337cf4509repo", "GetSalesforceObjectList=767900165297.dkr.ecr.us-east-1.amazonaws.com/lambdapythonsetpfunction4185fa71/getsalesforceobjectlist687335f4repo", "UpdateDBStatusCompleted=767900165297.dkr.ecr.us-east-1.amazonaws.com/lambdapythonsetpfunction4185fa71/updatedbstatuscompleted2b1ab1farepo", "InitBulkBackup=767900165297.dkr.ecr.us-east-1.amazonaws.com/lambdapythonsetpfunction4185fa71/initbulkbackup92258ef6repo", "UpdateDBStatusFailed=767900165297.dkr.ecr.us-east-1.amazonaws.com/lambdapythonsetpfunction4185fa71/updatedbstatusfailedd6fed2c3repo", "downloadFile=767900165297.dkr.ecr.us-east-1.amazonaws.com/lambdapythonsetpfunction4185fa71/downloadfile51a7a76arepo", "extractContentVersionList=767900165297.dkr.ecr.us-east-1.amazonaws.com/lambdapythonsetpfunction4185fa71/extractcontentversionlist9af7420crepo"]

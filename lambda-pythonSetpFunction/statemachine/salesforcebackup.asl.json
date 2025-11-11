@@ -10,9 +10,10 @@
         },
         "BackupMap": {
             "Type": "Map",
-            "ItemsPath": "$.objectList",
+            "ItemsPath": "$.objectList.objects",
             "Parameters": {
-                "objectName.$": "$$.Map.Item.Value"
+                "objectName.$": "$$.Map.Item.Value",
+                "requestDetails.$": "$.objectList.requestDetails"
             },
             "Iterator": {
                 "StartAt": "InitBulkBackup",
@@ -20,8 +21,29 @@
                     "InitBulkBackup": {
                         "Type": "Task",
                         "Resource": "${InitBulkBackupArn}",
-                        "ResultPath": "$.backupJob",
-                        "Next": "WaitBeforePolling"
+                        "ResultPath": "$",
+                        "Next": "IsBackUpInitiated"
+                    },
+                    "IsBackUpInitiated": {
+                        "Type": "Choice",
+                        "Choices": [
+                            {
+                                "Variable": "$.status",
+                                "StringEquals": "Skipped",
+                                "Next": "MarkCompleted"
+                            },
+                            {
+                                "Variable": "$.status",
+                                "StringEquals": "Submitted",
+                                "Next": "WaitBeforePolling"
+                            },
+                            {
+                                "Variable": "$.status",
+                                "StringEquals": "Aborted",
+                                "Next": "MarkCompleted"
+                            }
+                        ],
+                        "Default": "WaitBeforePolling"
                     },
                     "WaitBeforePolling": {
                         "Type": "Wait",
@@ -30,40 +52,116 @@
                     },
                     "CheckBackupStatus": {
                         "Type": "Task",
-                        "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:CheckBackupStatus",
-                        "ResultPath": "$.status",
+                        "Resource": "${CheckBackupStatusArn}",
+                        "ResultPath": "$",
                         "Next": "IsBackupComplete"
                     },
                     "IsBackupComplete": {
                         "Type": "Choice",
                         "Choices": [
                             {
-                                "Variable": "$.status.state",
-                                "StringEquals": "Completed",
+                                "Variable": "$.state",
+                                "StringEquals": "JobComplete",
                                 "Next": "DownloadData"
                             },
                             {
-                                "Variable": "$.status.state",
+                                "Variable": "$.state",
                                 "StringEquals": "Failed",
                                 "Next": "MarkFailed"
+                            },
+                            {
+                                "Variable": "$.state",
+                                "StringEquals": "InProgress",
+                                "Next": "WaitBeforePolling"
                             }
                         ],
-                        "Default": "WaitBeforePolling"
+                        "Default": "MarkFailed"
                     },
                     "DownloadData": {
                         "Type": "Task",
-                        "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:DownloadDataToS3",
-                        "ResultPath": "$.downloadResult",
-                        "Next": "MarkCompleted"
+                        "Resource": "${DownloadDataToS3Arn}",
+                        "ResultPath": "$",
+                        "Next": "OnDownloadToS3Complete"
+                    },
+                    "OnDownloadToS3Complete": {
+                        "Type": "Choice",
+                        "Choices": [
+                            {
+                                "Variable": "$.status",
+                                "StringEquals": "Aborted",
+                                "Next": "MarkCompleted"
+                            },
+                            {
+                                "Next": "MarkCompleted",
+                                "And": [
+                                    {
+                                        "Not": {
+                                            "Variable": "$.objectName",
+                                            "StringEquals": "ContentVersion"
+                                        }
+                                    },
+                                    {
+                                        "Not": {
+                                            "Variable": "$.status",
+                                            "StringEquals": "Partial"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "Variable": "$.objectName",
+                                "StringEquals": "ContentVersion",
+                                "Next": "extractContentVersionList"
+                            },
+                            {
+                                "Variable": "$.status",
+                                "StringEquals": "Partial",
+                                "Next": "DownloadData"
+                            }
+                        ],
+                        "Default": "MarkFailed"
+                    },
+                    "extractContentVersionList": {
+                        "Type": "Task",
+                        "Resource": "${extractContentVersionListArn}",
+                        "ResultPath": "$",
+                        "Next": "ContentVersionMap"
+                    },
+                    "ContentVersionMap": {
+                        "Type": "Map",
+                        "ItemsPath": "$.column_values",
+                        "Parameters": {
+                            "contentVersionId.$": "$$.Map.Item.Value",
+                            "s3Key.$": "$.s3_key",
+                            "S3BUCKET.$": "$.S3BUCKET",
+                            "requestDetails.$": "$.requestDetails"
+                        },
+                        "Iterator": {
+                            "StartAt": "DownloadFile",
+                            "States": {
+                                "DownloadFile": {
+                                    "Type": "Task",
+                                    "Resource": "${downloadFileArn}",
+                                    "ResultPath": "$",
+                                    "Next": "UpdateDBStatusCompleted"
+                                },
+                                "UpdateDBStatusCompleted": {
+                                    "Type": "Task",
+                                    "Resource": "${UpdateDBStatusCompletedArn}",
+                                    "End": true
+                                }
+                            }
+                        },
+                        "End": true
                     },
                     "MarkCompleted": {
                         "Type": "Task",
-                        "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:UpdateDBStatusCompleted",
+                        "Resource": "${UpdateDBStatusCompletedArn}",
                         "End": true
                     },
                     "MarkFailed": {
                         "Type": "Task",
-                        "Resource": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:UpdateDBStatusFailed",
+                        "Resource": "${UpdateDBStatusFailedArn}",
                         "End": true
                     }
                 }
